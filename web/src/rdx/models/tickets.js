@@ -3,6 +3,7 @@ import Aiven from '../../services/Aiven';
 export const tickets = {
   state: {
     loading: false,
+    progress: 0,
     list: [],
   },
   reducers: {
@@ -10,6 +11,12 @@ export const tickets = {
       return {
         ...state,
         loading: payload,
+      };
+    },
+    setProgress(state, payload) {
+      return {
+        ...state,
+        progress: payload,
       };
     },
     setList(state, payload) {
@@ -28,6 +35,7 @@ export const tickets = {
   effects: (dispatch) => ({
     async fetchAllTickets(payload, rootState) {
       dispatch.tickets.setLoading(true);
+      dispatch.tickets.setProgress(0);
       dispatch.tickets.setList([]);
       try {
         const projects = rootState.projects.list;
@@ -35,10 +43,11 @@ export const tickets = {
         for (let i = 0; i < projects.length; i++) {
           try {
             const tickets = await avn.listTickets(projects[i]);
-            console.log({ tickets });
             dispatch.tickets.appendList(tickets);
           } catch (error) {
             // support not enabled
+          } finally {
+            dispatch.tickets.setProgress((i + 1) / projects.length);
           }
         }
       } catch (error) {

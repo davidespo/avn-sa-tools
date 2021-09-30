@@ -4,7 +4,7 @@ import { useDispatch, useSelector } from 'react-redux';
 
 import { Link } from 'react-router-dom';
 
-const InsightCard = ({ title, value, loading = false, path }) => {
+const InsightCard = ({ title, value, loading = false, progress, path }) => {
   return (
     <div className="card">
       <div className="card-body">
@@ -12,7 +12,9 @@ const InsightCard = ({ title, value, loading = false, path }) => {
         <p className="card-text text-center display-1">{value}</p>
         {!!path && (
           <Link className="btn btn-primary" to={path}>
-            {loading ? 'Loading...' : 'View All'}
+            {loading
+              ? `Loading... ${(progress * 100).toFixed(1)}%`
+              : 'View All'}
           </Link>
         )}
       </div>
@@ -47,6 +49,7 @@ const InsightsHomePage = () => {
           <InsightCard
             title="Support Tickets"
             loading={tickets.loading}
+            progress={tickets.progress}
             value={tickets.list.length}
             path="/insights/data/tickets"
           />
