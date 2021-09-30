@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { Link, Route, Switch } from 'react-router-dom';
+import InsightsHomePage from './insights/InsightsHomePage';
 import SettingsHomePage from './settings/SettingsHomePage';
 
 const NotFoundPage = () => (
@@ -15,6 +16,8 @@ const NotFoundPage = () => (
 const Routes = () => {
   return (
     <Switch>
+      <Route exact path="/insights" component={InsightsHomePage} />
+
       <Route exact path="/settings" component={SettingsHomePage} />
       <Route component={NotFoundPage} />
     </Switch>
