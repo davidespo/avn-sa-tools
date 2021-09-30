@@ -26,6 +26,7 @@ export const settings = {
           real_name: name,
           projects,
         } = await new Aiven(payload).me();
+        Aiven.setGlobalClient(payload);
         dispatch.settings.set(kv('apiError', null));
         dispatch.settings.set(kv('apiUser', { email, name }));
         dispatch.projects.setList(projects);

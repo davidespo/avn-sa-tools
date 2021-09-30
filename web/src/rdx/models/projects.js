@@ -13,10 +13,9 @@ export const projects = {
     },
   },
   effects: (dispatch) => ({
-    async fetchProjectList(payload, rootState) {
+    async fetchProjectList() {
       try {
-        const { apiKey } = rootState.settings;
-        const { projects } = await new Aiven(apiKey).me();
+        const { projects } = await Aiven.instance.me();
         dispatch.projects.setList(projects);
       } catch (error) {
         console.log(error);

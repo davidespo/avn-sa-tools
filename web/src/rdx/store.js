@@ -9,9 +9,17 @@ const persistConfig = {
   whitelist: ['settings'],
 };
 
+const onComplete = () => {
+  const { settings } = store.getState();
+  if (!!settings.apiKey) {
+    console.info('Initializing API Client with persisted API Key');
+    store.dispatch.settings.setApiKey(settings.apiKey);
+  }
+};
+
 const store = init({
   models,
-  plugins: [persistPlugin(persistConfig)],
+  plugins: [persistPlugin(persistConfig, undefined, undefined, onComplete)],
 });
 
 export default store;

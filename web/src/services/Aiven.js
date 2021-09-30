@@ -25,3 +25,5 @@ export default class Aiven {
     return this._call(get('https://api.aiven.io/v1/me')).then(at('data.user'));
   }
 }
+
+Aiven.setGlobalClient = (apiKey) => (Aiven.instance = new Aiven(apiKey));
