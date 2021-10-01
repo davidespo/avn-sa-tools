@@ -21,15 +21,12 @@ export const settings = {
     async setApiKey(payload) {
       dispatch.settings.set(kv('apiKey', payload));
       try {
-        const {
-          user: email,
-          real_name: name,
-          projects,
-        } = await new Aiven(payload).me();
+        const user = await new Aiven(payload).me();
         Aiven.setGlobalClient(payload);
         dispatch.settings.set(kv('apiError', null));
-        dispatch.settings.set(kv('apiUser', { email, name }));
-        dispatch.projects.setList(projects);
+        dispatch.settings.set(kv('apiUser', user));
+        dispatch.projects.setList(user.projects);
+        dispatch.data.fetch();
       } catch (error) {
         console.log(error);
         dispatch.settings.set(kv('apiError', error.message));
