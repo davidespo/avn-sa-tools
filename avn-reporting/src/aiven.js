@@ -116,13 +116,14 @@ class AivenApi {
    * @param {string} period Enum of `"hour"`, `"day"`, `"week"`, `"month"`, `"year"`. Defaults to `"year"`
    * @returns
    */
-  getServiceMetrics(projectName, serviceName, period = 'year') {
-    return this._postAt(
+  async getServiceMetrics(projectName, serviceName, period = 'year') {
+    const metricsMap = await this._postAt(
       `https://api.aiven.io/v1/project/${projectName}/service/${serviceName}/metrics`,
       { period },
-      'data.services',
+      'data.metrics',
       [],
     );
+    return Object.keys(metricsMap).map((key) => ({ key, ...metricsMap[key] }));
   }
 }
 
@@ -141,6 +142,26 @@ const getProjectLevelCollection = () => ({
   error: null,
 });
 
+function processInsights(insightSpec, items) {
+  return insightSpec.map((spec) => {
+    let result = {};
+    let error = undefined;
+    try {
+      result = spec.processor.run(items);
+    } catch (error) {
+      console.error(error);
+      console.error(spec);
+    }
+    return {
+      key: spec.key,
+      text: spec.text,
+      kind: spec.processor.kind,
+      ...result,
+      error,
+    };
+  });
+}
+
 async function fetchTopLevelCollection(
   report,
   path,
@@ -154,15 +175,7 @@ async function fetchTopLevelCollection(
     const items = await itemFetcher();
     _.set(report, `${path}.list`, items);
     _.set(report, `${path}.error`, null);
-    const insights = insightSpec.map((spec) => {
-      try {
-        const count = items.filter(spec.predicate).length;
-        return { spec, count };
-      } catch (error) {
-        console.error(error);
-        return { spec, error: error.message };
-      }
-    });
+    const insights = processInsights(insightSpec, items);
     _.set(report, `${path}.insights`, insights);
   } catch (error) {
     console.error(`Fetch failed for ${path} with "${error.message}"`);
@@ -192,15 +205,7 @@ async function fetchProjectLevelCollection(
       console.log(projectName);
       const items = await itemFetcher(projectName);
       slice.list = slice.list.concat(items);
-      slice.insights = insightSpec.map((spec) => {
-        try {
-          const count = slice.list.filter(spec.predicate).length;
-          return { spec, count };
-        } catch (error) {
-          console.error(error);
-          return { spec, error: error.message };
-        }
-      });
+      slice.insights = processInsights(insightSpec, slice.list);
       slice.progress = (i + 1) / projects.length;
       progressSink(report);
     }
@@ -213,62 +218,171 @@ async function fetchProjectLevelCollection(
   progressSink(report);
 }
 
-const insightSpec = (key, text, predicate) => ({ key, text, predicate });
+async function fetchServiceLevelCollection(
+  report,
+  path,
+  progressSink,
+  itemFetcher,
+  insightSpec,
+) {
+  _.set(report, `${path}.loading`, true);
+  progressSink(report);
+  try {
+    const items = await itemFetcher();
+    _.set(report, `${path}.list`, items);
+    _.set(report, `${path}.error`, null);
+    const insights = processInsights(insightSpec, items);
+    _.set(report, `${path}.insights`, insights);
+  } catch (error) {
+    console.error(`Fetch failed for ${path} with "${error.message}"`);
+    console.error(error);
+    _.set(report, `${path}.list`, []);
+    _.set(report, `${path}.error`, error);
+  }
+  _.set(report, `${path}.loading`, false);
+  progressSink(report);
+}
+
+const insightSpec = (key, text, processor) => ({
+  key,
+  text,
+  kind: processor.kind,
+  processor,
+});
+const processorGen = (kind, run) => ({ kind, run });
+const countProcessor = (predicate) =>
+  processorGen('COUNT', (list) => {
+    const result = {};
+    try {
+      return {
+        count: list.filter(predicate).length,
+      };
+    } catch (error) {
+      console.error(error);
+      return {
+        error: error.message,
+      };
+    }
+  });
+const groupByProcessor = (propertyPath, mapper = (a) => a) =>
+  processorGen('GROUP_BY', (list) => {
+    const counts = {};
+    try {
+      for (let i = 0; i < list.length; i++) {
+        const prop = mapper(
+          _.get(list[i], propertyPath, null),
+          list[i],
+          list,
+          i,
+        );
+        _.set(counts, prop, _.get(counts, prop, 0) + 1);
+      }
+      return { counts };
+    } catch (error) {
+      console.error(error);
+      return {
+        error: error.message,
+      };
+    }
+  });
 const INSIGHT_SPEC_TOTAL_COUNT = insightSpec(
   'total',
   'Total Count',
-  () => true,
+  countProcessor(() => true),
 );
 
+const INTERVAL_MS_30_DAYS = 30 * 86400 * 1000;
 const INSIGHT_SPECS = {
   projects: [
     INSIGHT_SPEC_TOTAL_COUNT,
     insightSpec(
       'empty',
       'Projects without active services',
-      (p) => p.estimated_balance === 0 || p.estimated_balance === '0.00',
+      countProcessor(
+        (p) => p.estimated_balance === 0 || p.estimated_balance === '0.00',
+      ),
     ),
     insightSpec(
       'billingEmail',
       'Project without billing email',
-      (p) => p.billing_emails.length === 0,
+      countProcessor((p) => p.billing_emails.length === 0),
     ),
     insightSpec(
       'techEmail',
       'Project without tech email',
-      (p) => p.tech_emails.length === 0,
+      countProcessor((p) => p.tech_emails.length === 0),
+    ),
+    insightSpec(
+      'account',
+      'Account Assignment',
+      groupByProcessor('account_name'),
     ),
   ],
   versions: [INSIGHT_SPEC_TOTAL_COUNT],
   tickets: [
     INSIGHT_SPEC_TOTAL_COUNT,
-    insightSpec('open', 'Open Tickets', (t) => t.state !== 'closed'),
-    // TODO: recent
-    // TODO: by severity
+    insightSpec(
+      'open',
+      'Open Tickets',
+      countProcessor((t) => t.state !== 'closed'),
+    ),
+    insightSpec(
+      'recent',
+      'Tickets in last 30 Days',
+      countProcessor(
+        (t) =>
+          Date.now() - new Date(t.create_time).getTime() < INTERVAL_MS_30_DAYS,
+      ),
+    ),
+    insightSpec('severity', 'Ticket by Severity', groupByProcessor('severity')),
   ],
   alerts: [
     INSIGHT_SPEC_TOTAL_COUNT,
-    // TODO: per service
+    insightSpec('severity', 'Ticket by Severity', groupByProcessor('severity')),
+    insightSpec(
+      'service',
+      'Alerts by Service Type',
+      groupByProcessor('service_type'),
+    ),
   ],
   vpcs: [
     INSIGHT_SPEC_TOTAL_COUNT,
-    insightSpec('active', 'Active VPCs', (t) => t.state === 'ACTIVE'),
-    // TODO: per cloud
+    insightSpec('state', 'VPCs by State', groupByProcessor('state')),
+    insightSpec(
+      'cloud',
+      'VPCs by Cloud',
+      groupByProcessor('cloud_name', (region) => region.split('-')[0]),
+    ),
   ],
   integrations: [
     INSIGHT_SPEC_TOTAL_COUNT,
-    // TODO: by endpoint type
+    insightSpec(
+      'kind',
+      'Integrations by Type',
+      groupByProcessor('endpoint_type'),
+    ),
   ],
   services: [
     INSIGHT_SPEC_TOTAL_COUNT,
-    insightSpec('active', 'Active', (t) => t.state === 'RUNNING'),
-    insightSpec('poweroff', 'Powered Off', (t) => t.state === 'POWEROFF'),
-    insightSpec('vpc', 'Inside VPC', (t) => !_.isNil(t.project_vpc_id)),
+    insightSpec(
+      'active',
+      'Active',
+      countProcessor((t) => t.state === 'RUNNING'),
+    ),
+    insightSpec(
+      'poweroff',
+      'Powered Off',
+      countProcessor((t) => t.state === 'POWEROFF'),
+    ),
+    insightSpec(
+      'vpc',
+      'Inside VPC',
+      countProcessor((t) => !_.isNil(t.project_vpc_id)),
+    ),
     insightSpec(
       'onlyAvnadmin',
       'Only Using Default Service Account',
-      // TODO: validate predicate logic
-      (t) => {
+      countProcessor((t) => {
         const hasUserAccounts = t.service_type !== 'kafka_mirrormaker';
         if (!hasUserAccounts) {
           return false;
@@ -277,18 +391,38 @@ const INSIGHT_SPECS = {
         const firstUserIsAvnAdmin =
           _.get(t, 'users[0].username', '') === 'avnadmin';
         return hasUserAccounts && hasSingleUser && firstUserIsAvnAdmin;
-      },
+      }),
     ),
     insightSpec(
       'termProtected',
       'Without Termination Protection',
-      (t) => !t.termination_protection,
+      countProcessor((t) => !t.termination_protection),
     ),
-    // TODO: per service_type
-    // TODO: per plan??
-    // TODO: by cloud
-    // TODO: with service_integrations
+    insightSpec(
+      'serviceType',
+      'Service Type Counts',
+      groupByProcessor('service_type'),
+    ),
+    insightSpec(
+      'planTier',
+      'Services by Plan Tier',
+      groupByProcessor('plan', (plan) => plan.split('-')[0]),
+    ),
+    insightSpec(
+      'cloud',
+      'Services by Cloud',
+      groupByProcessor('cloud_name', (region) => region.split('-')[0]),
+    ),
+    // TODO: by region???
+    insightSpec(
+      'integrations',
+      'Service with Integrations',
+      countProcessor((s) => s.service_integrations.length > 0),
+    ),
   ],
+  service: {
+    metrics: [],
+  },
 };
 
 class AivenReporter {
@@ -299,7 +433,7 @@ class AivenReporter {
   constructor(avn) {
     this.avn = avn;
   }
-  async runReport(options) {
+  async runFullReport(options) {
     const { progressSink } = options;
     const report = {
       running: true,
@@ -362,6 +496,24 @@ class AivenReporter {
       progressSink,
       this.avn.listServices.bind(this.avn),
       INSIGHT_SPECS.services,
+    );
+    report.running = false;
+    progressSink(report);
+    return report;
+  }
+  async runServiceReport(projectName, serviceName, options) {
+    const { progressSink } = options;
+    const report = {
+      running: true,
+      metrics: getTopLevelCollection(),
+    };
+    // Capacity Planning
+    await fetchServiceLevelCollection(
+      report,
+      'metrics',
+      progressSink,
+      () => this.avn.getServiceMetrics(projectName, serviceName),
+      INSIGHT_SPECS.service.metrics,
     );
     report.running = false;
     progressSink(report);
