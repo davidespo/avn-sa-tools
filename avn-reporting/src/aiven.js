@@ -116,6 +116,13 @@ class AivenApi {
    * @param {string} period Enum of `"hour"`, `"day"`, `"week"`, `"month"`, `"year"`. Defaults to `"year"`
    * @returns
    */
+  getService(projectName, serviceName) {
+    return this._getAt(
+      `https://api.aiven.io/v1/project/${projectName}/service/${serviceName}`,
+      'data.service',
+      [],
+    );
+  }
   async getServiceMetrics(projectName, serviceName, period = 'year') {
     const metricsMap = await this._postAt(
       `https://api.aiven.io/v1/project/${projectName}/service/${serviceName}/metrics`,
@@ -143,23 +150,28 @@ const getProjectLevelCollection = () => ({
 });
 
 function processInsights(insightSpec, items) {
-  return insightSpec.map((spec) => {
-    let result = {};
-    let error = undefined;
-    try {
-      result = spec.processor.run(items);
-    } catch (error) {
-      console.error(error);
-      console.error(spec);
-    }
-    return {
-      key: spec.key,
-      text: spec.text,
-      kind: spec.processor.kind,
-      ...result,
-      error,
-    };
-  });
+  return insightSpec
+    .map((spec) => {
+      let result = {};
+      let error = undefined;
+      try {
+        result = spec.processor.run(items);
+        if (_.isNil(result)) {
+          return null;
+        }
+      } catch (error) {
+        console.error(error);
+        console.error(spec);
+      }
+      return {
+        key: spec.key,
+        text: spec.text,
+        kind: spec.processor.kind,
+        ...result,
+        error,
+      };
+    })
+    .filter((o) => !_.isNil(o));
 }
 
 async function fetchTopLevelCollection(
@@ -285,6 +297,49 @@ const groupByProcessor = (propertyPath, mapper = (a) => a) =>
       };
     }
   });
+
+const serviceMetricsProcessor = processorGen('METRICS', (list) => {
+  const stats = {};
+  for (let i = 0; i < list.length; i++) {
+    const {
+      key,
+      data: { rows },
+    } = list[i];
+    const slice = {
+      min: Number.MAX_SAFE_INTEGER,
+      max: Number.MIN_SAFE_INTEGER,
+      avg: 0,
+      count: 0,
+    };
+    stats[key] = slice;
+    // basic stats
+    for (let j = 1; j < rows.length; j++) {
+      const row = rows[j];
+      for (let k = 1; k < row.length; k++) {
+        const val = row[k];
+        slice.min = Math.min(slice.min, row[k]);
+        slice.max = Math.max(slice.max, row[k]);
+        slice.avg += row[k];
+        slice.count++;
+      }
+    }
+    // slope
+    const yBar = rows.length / 2;
+    let n = 0;
+    let d = 0;
+    for (let j = 1; j < rows.length; j++) {
+      const row = rows[j];
+      for (let k = 1; k < row.length; k++) {
+        const val = row[k];
+        n += (val - slice.avg) * (j - yBar);
+        d += Math.pow(j - yBar, 2);
+      }
+    }
+    slice.rate = n / d;
+    slice.avg = slice.avg / slice.count;
+  }
+  return { stats };
+});
 const INSIGHT_SPEC_TOTAL_COUNT = insightSpec(
   'total',
   'Total Count',
@@ -421,7 +476,13 @@ const INSIGHT_SPECS = {
     ),
   ],
   service: {
-    metrics: [],
+    metrics: [
+      insightSpec(
+        'metricsStats',
+        'Service Metrics Stats',
+        serviceMetricsProcessor,
+      ),
+    ],
   },
 };
 
@@ -505,8 +566,17 @@ class AivenReporter {
     const { progressSink } = options;
     const report = {
       running: true,
+      service: getTopLevelCollection(),
       metrics: getTopLevelCollection(),
     };
+    // TOP LEVEL
+    await fetchTopLevelCollection(
+      report,
+      'service',
+      progressSink,
+      () => this.avn.getService(projectName, serviceName).then((s) => [s]),
+      INSIGHT_SPECS.services,
+    );
     // Capacity Planning
     await fetchServiceLevelCollection(
       report,

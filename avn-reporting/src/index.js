@@ -46,7 +46,8 @@ reporter
   .runServiceReport('dev-sandbox', 'kafka-smulis', {
     progressSink: summaryProgressSink,
   })
-  .then((report) => {
-    console.log('DONE');
-    console.log(JSON.stringify(report, null, 2));
-  });
+  .then(reportSummary);
+// .then((report) => {
+//   console.log('DONE');
+//   console.log(JSON.stringify(report, null, 2));
+// });
