@@ -127,9 +127,6 @@ const InsightsHomePage = () => {
             </div>
           ))}
       </div>
-      <hr />
-      <pre>{JSON.stringify(reports, null, 2)}</pre>
-      <hr />
     </div>
   );
 };
