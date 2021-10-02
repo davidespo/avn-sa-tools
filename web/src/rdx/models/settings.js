@@ -25,8 +25,8 @@ export const settings = {
         Aiven.setGlobalClient(payload);
         dispatch.settings.set(kv('apiError', null));
         dispatch.settings.set(kv('apiUser', user));
-        dispatch.projects.setList(user.projects);
-        dispatch.data.fetch();
+        // dispatch.projects.setList(user.projects);
+        // dispatch.data.fetch();
       } catch (error) {
         console.log(error);
         dispatch.settings.set(kv('apiError', error.message));

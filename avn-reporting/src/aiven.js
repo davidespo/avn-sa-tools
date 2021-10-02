@@ -494,10 +494,9 @@ class AivenReporter {
   constructor(avn) {
     this.avn = avn;
   }
-  async runFullReport(options) {
-    const { progressSink } = options;
-    const report = {
-      running: true,
+  static getInitialState() {
+    return {
+      running: false,
       projects: getTopLevelCollection(),
       versions: getTopLevelCollection(),
       tickets: getProjectLevelCollection(),
@@ -506,6 +505,17 @@ class AivenReporter {
       integrations: getProjectLevelCollection(),
       services: getProjectLevelCollection(),
     };
+  }
+  /**
+   *
+   * @param {object} options
+   * @param {function} options.progressSink
+   * @returns
+   */
+  async runFullReport(options) {
+    const { progressSink } = options;
+    const report = AivenReporter.getInitialState();
+    report.running = true;
     // TOP LEVEL
     await fetchTopLevelCollection(
       report,
@@ -514,43 +524,43 @@ class AivenReporter {
       this.avn.listProjects.bind(this.avn),
       INSIGHT_SPECS.projects,
     );
-    // await fetchTopLevelCollection(
-    //   report,
-    //   'versions',
-    //   progressSink,
-    //   this.avn.listServiceVersions.bind(this.avn),
-    //   INSIGHT_SPECS.versions,
-    // );
+    await fetchTopLevelCollection(
+      report,
+      'versions',
+      progressSink,
+      this.avn.listServiceVersions.bind(this.avn),
+      INSIGHT_SPECS.versions,
+    );
 
     // PROJECT LEVEL
-    // await fetchProjectLevelCollection(
-    //   report,
-    //   'tickets',
-    //   progressSink,
-    //   this.avn.listTickets.bind(this.avn),
-    //   INSIGHT_SPECS.tickets,
-    // );
-    // await fetchProjectLevelCollection(
-    //   report,
-    //   'alerts',
-    //   progressSink,
-    //   this.avn.listAlerts.bind(this.avn),
-    //   INSIGHT_SPECS.alerts,
-    // );
-    // await fetchProjectLevelCollection(
-    //   report,
-    //   'vpcs',
-    //   progressSink,
-    //   this.avn.listVpcs.bind(this.avn),
-    //   INSIGHT_SPECS.vpcs,
-    // );
-    // await fetchProjectLevelCollection(
-    //   report,
-    //   'integrations',
-    //   progressSink,
-    //   this.avn.listIntegrations.bind(this.avn),
-    //   INSIGHT_SPECS.integrations,
-    // );
+    await fetchProjectLevelCollection(
+      report,
+      'tickets',
+      progressSink,
+      this.avn.listTickets.bind(this.avn),
+      INSIGHT_SPECS.tickets,
+    );
+    await fetchProjectLevelCollection(
+      report,
+      'alerts',
+      progressSink,
+      this.avn.listAlerts.bind(this.avn),
+      INSIGHT_SPECS.alerts,
+    );
+    await fetchProjectLevelCollection(
+      report,
+      'vpcs',
+      progressSink,
+      this.avn.listVpcs.bind(this.avn),
+      INSIGHT_SPECS.vpcs,
+    );
+    await fetchProjectLevelCollection(
+      report,
+      'integrations',
+      progressSink,
+      this.avn.listIntegrations.bind(this.avn),
+      INSIGHT_SPECS.integrations,
+    );
     await fetchProjectLevelCollection(
       report,
       'services',
@@ -562,6 +572,14 @@ class AivenReporter {
     progressSink(report);
     return report;
   }
+  /**
+   *
+   * @param {string} projectName
+   * @param {string} serviceName
+   * @param {*} options
+   * @param {function} options.progressSink
+   * @returns
+   */
   async runServiceReport(projectName, serviceName, options) {
     const { progressSink } = options;
     const report = {
@@ -577,14 +595,29 @@ class AivenReporter {
       () => this.avn.getService(projectName, serviceName).then((s) => [s]),
       INSIGHT_SPECS.services,
     );
-    // Capacity Planning
-    await fetchServiceLevelCollection(
-      report,
-      'metrics',
-      progressSink,
-      () => this.avn.getServiceMetrics(projectName, serviceName),
-      INSIGHT_SPECS.service.metrics,
-    );
+    const service = report.service[0];
+    if (service[0].state === 'RUNNING') {
+      // Capacity Planning
+      await fetchServiceLevelCollection(
+        report,
+        'metrics',
+        progressSink,
+        () => this.avn.getServiceMetrics(projectName, serviceName),
+        INSIGHT_SPECS.service.metrics,
+      );
+      switch (service.sevice_type) {
+        case 'kafka': {
+          // TODO: Kafka
+          break;
+        }
+        case 'elasticsearch': {
+          // TODO: Elasticsearch
+          break;
+        }
+        default: {
+        }
+      }
+    }
     report.running = false;
     progressSink(report);
     return report;

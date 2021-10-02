@@ -17,7 +17,7 @@ const persistConfig = {
   key: 'root',
   version: 0,
   storage,
-  whitelist: ['settings', 'data'],
+  whitelist: ['settings', 'reports'],
 };
 
 const store = init({

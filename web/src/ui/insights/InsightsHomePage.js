@@ -1,25 +1,76 @@
-import React, { useEffect } from 'react';
+import React from 'react';
+import _ from 'lodash';
 
 import { useDispatch, useSelector } from 'react-redux';
 
 import { Link } from 'react-router-dom';
 
+/*
+{
+  "key": "techEmail",
+  "text": "Project without tech email",
+  "kind": "COUNT",
+  "count": 18
+},
+{
+  "key": "account",
+  "text": "Account Assignment",
+  "kind": "GROUP_BY",
+  "counts": {
+    "Aiven Enterprise POC Projects": 2,
+    "Solutions Architecture": 10,
+    "David Corporate": 2,
+    "demo-tech1": 3,
+    "Engineering": 1,
+    "Aiven Demo Account": 1
+  }
+}
+*/
+
+const CountInsightItem = ({ item: { text, count } }) => (
+  <li className="list-group-item d-flex justify-content-between align-items-center">
+    {text}
+    <span className="badge bg-secondary rounded-pill">{count}</span>
+  </li>
+);
+
+const GroupByInsightItem = ({ item: { text, counts } }) => (
+  <li className="list-group-item">
+    {text} <br />
+    {Object.keys(counts).map((k) => (
+      <span className="badge bg-secondary mr-3" key={k}>
+        {`${k}: ${counts[k]}`}
+      </span>
+    ))}
+  </li>
+);
+
+const InsightItem = ({ item }) => {
+  switch (item.kind) {
+    case 'COUNT': {
+      return <CountInsightItem item={item} />;
+    }
+    case 'GROUP_BY': {
+      return <GroupByInsightItem item={item} />;
+    }
+    default:
+      return <span></span>;
+  }
+};
+
 const InsightGroup = ({ items }) => (
   <ul className="list-group">
-    {items.map(({ text, value }) => (
-      <li className="list-group-item d-flex justify-content-between align-items-center">
-        {text}
-        <span className="badge bg-primary rounded-pill">{value}</span>
-      </li>
+    {items.map((item) => (
+      <InsightItem item={item} key={item.key} />
     ))}
   </ul>
 );
 
 const Progress = ({ value }) => {
   return (
-    <div class="progress">
+    <div className="progress">
       <div
-        class="progress-bar progress-bar-striped progress-bar-animated"
+        className="progress-bar progress-bar-striped progress-bar-animated bg-success"
         role="progressbar"
         style={{ width: `${Math.trunc(value)}%` }}
       ></div>
@@ -27,26 +78,21 @@ const Progress = ({ value }) => {
   );
 };
 
-const InsightCard = ({ title, value, loading = false, progress, path }) => {
+const InsightCard = ({ slug, collection }) => {
+  const title = _.startCase(slug);
+  const { loading, progress, list, insights } = collection;
   return (
     <div className="card">
       <div className="card-body">
         <h5 className="card-title">{title}</h5>
-        <p className="card-text text-center display-1">{value}</p>
+        <p className="card-text text-center display-1">{list.length}</p>
         <div className="card-text mb-4">
-          <InsightGroup
-            items={[
-              { text: 'Empty', value: 0 },
-              { text: 'No Tech Email', value: 3 },
-            ]}
-          />
+          <InsightGroup items={insights} />
         </div>
         {loading ? (
-          <Progress value={progress} />
-        ) : !path ? (
-          ''
+          <Progress value={progress * 100} />
         ) : (
-          <Link className="btn btn-primary" to={path}>
+          <Link className="btn btn-primary" to={`/insights/${slug}`}>
             View All
           </Link>
         )}
@@ -56,40 +102,34 @@ const InsightCard = ({ title, value, loading = false, progress, path }) => {
 };
 
 const InsightsHomePage = () => {
-  const { user, projects, tickets } = useSelector((state) => ({
+  const { user, reports } = useSelector((state) => ({
     user: state.settings.apiUser,
-    projects: state.projects.list,
-    tickets: state.tickets,
+    reports: state.reports,
   }));
-  console.log({ user, projects, tickets });
-  // const dispatch = useDispatch();
-  // useEffect(() => {
-  //   dispatch.tickets.fetchAllTickets();
-  //   dispatch.projects.fetchProjectDetails();
-  // }, []);
+  const dispatch = useDispatch();
+  const runReport = () => dispatch.reports.runFullReport();
   return (
     <div className="mt-3">
       <p className="lead">
         {user.name} ({user.email})
       </p>
+      <p>
+        <button className="btn btn-success" onClick={runReport}>
+          Run Report
+        </button>
+      </p>
       <div className="row">
-        <div className="col-4">
-          <InsightCard
-            title="Projects"
-            value={projects.length}
-            path="/insights/data/projects"
-          />
-        </div>
-        <div className="col-4">
-          {/* <InsightCard
-            title="Support Tickets"
-            loading={tickets.loading}
-            progress={tickets.progress}
-            value={tickets.list.length}
-            path="/insights/data/tickets"
-          /> */}
-        </div>
+        {Object.keys(reports)
+          .filter((k) => k !== 'running')
+          .map((k) => (
+            <div className="col-4 mb-3" key={k}>
+              <InsightCard slug={k} collection={reports[k]} />
+            </div>
+          ))}
       </div>
+      <hr />
+      <pre>{JSON.stringify(reports, null, 2)}</pre>
+      <hr />
     </div>
   );
 };
